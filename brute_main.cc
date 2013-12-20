@@ -1,5 +1,7 @@
+//! clang++ --std=c++11 -O3 brute_main.cc -o brute_main \
+//!   -Weverything -Werror -Wno-c++98-compat -Wno-padded
+
 #include <iostream>
-    using std::cerr;
     using std::cin;
     using std::cout;
     using std::endl;
@@ -15,15 +17,6 @@
 #include <cstring>
 #include <cstdlib>
 
-static void split(const string& line, const char* delims, vector<string>* splits) {
-    for (const char* s = line.c_str(); s != line.c_str() + line.size(); ) {
-        const size_t span = strcspn(s, delims);
-        splits->push_back(string(s, span));
-        s += span;
-        s += strspn(s, " ");
-    }
-}
-
 static bool parse_literal(const string& token, double* value) {
     char* end;
     *value = strtod(token.c_str(), &end);
@@ -33,6 +26,8 @@ static bool parse_literal(const string& token, double* value) {
 class Forth {
 public:
     Forth() : recording_(false) {}
+
+    vector<double> stack() const { return stack_; }
 
     void push(double d) {
         stack_.push_back(d);
@@ -57,6 +52,8 @@ public:
         immediate_[name] = word;
     }
 
+    bool recording() const { return recording_; }
+
     void startRecording() {
         recording_ = true;
 
@@ -67,22 +64,21 @@ public:
     void stopRecording() {
         recording_ = false;
 
-        vector<string> body;
-        body.swap(body_);
-        normal_[name_] = [body](Forth* f) {
-            for (const auto& token : body) f->eval(token);
-        };
+        string body(body_);
+        normal_[name_] = [body](Forth* f) { f->eval(body); };
     }
 
-    void eval(const string& token) {
-        if (Word w = lookup(token, immediate_)) return w(this);
-
-        if (recording_) return this->record(token);
-
-        double literal;
-        if (parse_literal(token, &literal)) return this->push(literal);
-
-        if (Word w = lookup(token, normal_)) return w(this);
+    void eval(const string& line) {
+        const char* s = line.c_str();
+        const char* end = s + line.size();
+        s += strspn(s, " ");
+        while (s != end) {
+            size_t span = strcspn(s, " ");
+            string token(s, span);
+            s += span;
+            s += strspn(s, " ");
+            this->evalToken(token);
+        }
     }
 
 private:
@@ -96,8 +92,17 @@ private:
         if (name_ == "") {
             name_ = token;
         } else {
-            body_.push_back(token);
+            body_ += " ";
+            body_ += token;
         }
+    }
+
+    void evalToken(const string& token) {
+        if (Word w = lookup(token, immediate_)) return w(this);
+        if (recording_) return this->record(token);
+        double literal;
+        if (parse_literal(token, &literal)) this->push(literal);
+        if (Word w = lookup(token, normal_)) return w(this);
     }
 
     vector<double> stack_;
@@ -105,8 +110,7 @@ private:
     unordered_map<string, Word> immediate_, normal_;
 
     bool recording_;
-    string name_;
-    vector<string> body_;
+    string name_, body_;
 };
 
 int main(int /*argc*/, char** /*argv*/) {
@@ -115,20 +119,31 @@ int main(int /*argc*/, char** /*argv*/) {
     forth.add("-", [](Forth* f){ double r = f->pop(), l = f->pop(); f->push(l-r); });
     forth.add("*", [](Forth* f){ double r = f->pop(), l = f->pop(); f->push(l*r); });
     forth.add("/", [](Forth* f){ double r = f->pop(), l = f->pop(); f->push(l/r); });
-    forth.add(".", [](Forth* f){ cout << f->pop() << endl; });
+
     forth.add(":", [](Forth* f){ f->startRecording(); });
     forth.addImmediate(";", [](Forth* f){ f->stopRecording(); });
 
-    string line;
-    vector<string> tokens;
+    forth.add("drop", [](Forth* f){ f->pop(); });
+    forth.add("dup",  [](Forth* f){ double v = f->pop(); f->push(v); f->push(v); });
+    forth.add("swap", [](Forth* f){
+        double a = f->pop(), b = f->pop();
+        f->push(a); f->push(b);
+    });
+    forth.add("rot", [](Forth* f){
+        double a = f->pop(), b = f->pop(), c = f->pop();
+        f->push(b); f->push(a); f->push(c);
+    });
+
+    forth.eval(": over swap dup rot swap ;");
 
     do {
+        for (double v : forth.stack()) cout << v << " ";
+        cout << endl;
+        if(forth.recording()) cout << "*";
         cout << "bƒ ";
+
+        string line;
         getline(cin, line);
-        tokens.clear();
-        split(line, " ", &tokens);
-        for (size_t i = 0; i < tokens.size(); i++) {
-            forth.eval(tokens[i]);
-        }
+        forth.eval(line);
     } while(!line.empty());
 }
