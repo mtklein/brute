@@ -1,9 +1,12 @@
 #include <iostream>
+    using std::cerr;
     using std::cin;
     using std::cout;
     using std::endl;
-#include <map>
-    using std::map;
+#include <functional>
+    using std::function;
+#include <unordered_map>
+    using std::unordered_map;
 #include <string>
     using std::string;
 #include <vector>
@@ -27,8 +30,9 @@ static bool parse_literal(const string& token, double* value) {
     return end == token.c_str() + token.size();
 }
 
-struct Forth {
-    typedef void(*Word)(Forth*);
+class Forth {
+public:
+    Forth() : recording_(false) {}
 
     void push(double d) {
         stack_.push_back(d);
@@ -43,57 +47,77 @@ struct Forth {
         return v;
     }
 
+    typedef function<void(Forth*)> Word;
+
     void add(const string& name, Word word) {
-        dict_[name] = word;
+        normal_[name] = word;
+    }
+
+    void addImmediate(const string& name, Word word) {
+        immediate_[name] = word;
+    }
+
+    void startRecording() {
+        recording_ = true;
+
+        name_.clear();
+        body_.clear();
+    }
+
+    void stopRecording() {
+        recording_ = false;
+
+        vector<string> body;
+        body.swap(body_);
+        normal_[name_] = [body](Forth* f) {
+            for (const auto& token : body) f->eval(token);
+        };
     }
 
     void eval(const string& token) {
+        if (Word w = lookup(token, immediate_)) return w(this);
+
+        if (recording_) return this->record(token);
+
         double literal;
         if (parse_literal(token, &literal)) return this->push(literal);
 
-        map<string, Word>::const_iterator it = dict_.find(token);
-        if (it != dict_.end()) {
-            (it->second)(this);
-        }
+        if (Word w = lookup(token, normal_)) return w(this);
     }
 
 private:
+    Word lookup(const string& name, const unordered_map<string, Word>& dict) const {
+        auto it = dict.find(name);
+        if (it == dict.end()) return NULL;
+        return it->second;
+    }
+
+    void record(const string& token) {
+        if (name_ == "") {
+            name_ = token;
+        } else {
+            body_.push_back(token);
+        }
+    }
+
     vector<double> stack_;
-    map<string, Word> dict_;
+
+    unordered_map<string, Word> immediate_, normal_;
+
+    bool recording_;
+    string name_;
+    vector<string> body_;
 };
-
-static void add(Forth* f) {
-    double r = f->pop();
-    double l = f->pop();
-    f->push(l + r);
-}
-static void subtract(Forth* f) {
-    double r = f->pop();
-    double l = f->pop();
-    f->push(l - r);
-}
-static void multiply(Forth* f) {
-    double r = f->pop();
-    double l = f->pop();
-    f->push(l * r);
-}
-static void divide(Forth* f) {
-    double r = f->pop();
-    double l = f->pop();
-    f->push(l / r);
-}
-
-static void pop(Forth* f) {
-    cout << f->pop() << endl;
-}
 
 int main(int /*argc*/, char** /*argv*/) {
     Forth forth;
-    forth.add("+", add);
-    forth.add("-", subtract);
-    forth.add("*", multiply);
-    forth.add("/", divide);
-    forth.add(".", pop);
+    forth.add("+", [](Forth* f){ double r = f->pop(), l = f->pop(); f->push(l+r); });
+    forth.add("-", [](Forth* f){ double r = f->pop(), l = f->pop(); f->push(l-r); });
+    forth.add("*", [](Forth* f){ double r = f->pop(), l = f->pop(); f->push(l*r); });
+    forth.add("/", [](Forth* f){ double r = f->pop(), l = f->pop(); f->push(l/r); });
+    forth.add(".", [](Forth* f){ cout << f->pop() << endl; });
+    forth.add(":", [](Forth* f){ f->startRecording(); });
+    forth.addImmediate(";", [](Forth* f){ f->stopRecording(); });
 
     string line;
     vector<string> tokens;
