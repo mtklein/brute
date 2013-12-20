@@ -1,12 +1,15 @@
 //! clang++ --std=c++11 -O3 brute_main.cc -o brute_main \
 //!   -Weverything -Werror -Wno-c++98-compat -Wno-padded
 
+#include <deque>
+    using std::deque;
+#include <functional>
+    using std::function;
 #include <iostream>
+    using std::cerr;
     using std::cin;
     using std::cout;
     using std::endl;
-#include <functional>
-    using std::function;
 #include <unordered_map>
     using std::unordered_map;
 #include <string>
@@ -14,6 +17,7 @@
 #include <vector>
     using std::vector;
 
+#include <cassert>
 #include <cstring>
 #include <cstdlib>
 
@@ -42,7 +46,11 @@ public:
         return v;
     }
 
-    typedef function<void(Forth*)> Word;
+    void clear() {
+        stack_.clear();
+    }
+
+    typedef function<void()> Word;
 
     void add(const string& name, Word word) {
         normal_[name] = word;
@@ -50,6 +58,14 @@ public:
 
     void addImmediate(const string& name, Word word) {
         immediate_[name] = word;
+    }
+
+    vector<string> words() const {
+        vector<string> words;
+        for (const auto& entry : normal_) {
+            words.push_back(entry.first);
+        }
+        return words;
     }
 
     bool recording() const { return recording_; }
@@ -65,7 +81,7 @@ public:
         recording_ = false;
 
         string body(body_);
-        normal_[name_] = [body](Forth* f) { f->eval(body); };
+        normal_[name_] = [this, body]() { this->eval(body); };
     }
 
     void eval(const string& line) {
@@ -98,52 +114,101 @@ private:
     }
 
     void evalToken(const string& token) {
-        if (Word w = lookup(token, immediate_)) return w(this);
+        if (Word w = lookup(token, immediate_)) return w();
         if (recording_) return this->record(token);
         double literal;
         if (parse_literal(token, &literal)) this->push(literal);
-        if (Word w = lookup(token, normal_)) return w(this);
+        if (Word w = lookup(token, normal_)) return w();
     }
 
     vector<double> stack_;
-
     unordered_map<string, Word> immediate_, normal_;
-
     bool recording_;
     string name_, body_;
 };
 
+static void test(Forth* f, const string& line, vector<double> expectedStack) {
+    f->eval(line);
+    if (expectedStack != f->stack()) {
+        cerr << "Expected";
+        for (double v : expectedStack) cerr << " " << v;
+        cerr << ", actual";
+        for (double v : f->stack()) cerr << " " << v;
+        cerr << endl;
+        assert(false);
+    }
+}
+
+static void brute(Forth* f, const string& name, const string& example, vector<double> stack) {
+    const vector<string> words = f->words();
+
+    deque<string> candidates(words.begin(), words.end());
+
+    while (!candidates.empty()) {
+        string candidate = candidates.front();
+
+        f->clear();
+        f->eval(": " + name + " " + candidate + " ; " + example);
+        if (f->stack() == stack) {
+            f->clear();
+            cout << name << " " << candidate << endl;
+            return;
+        }
+
+        candidates.pop_front();
+        for (const string& word : words) {
+            candidates.push_back(candidate + " " + word);
+        }
+    }
+
+    assert(false);
+}
+
 int main(int /*argc*/, char** /*argv*/) {
-    Forth forth;
-    forth.add("+", [](Forth* f){ double r = f->pop(), l = f->pop(); f->push(l+r); });
-    forth.add("-", [](Forth* f){ double r = f->pop(), l = f->pop(); f->push(l-r); });
-    forth.add("*", [](Forth* f){ double r = f->pop(), l = f->pop(); f->push(l*r); });
-    forth.add("/", [](Forth* f){ double r = f->pop(), l = f->pop(); f->push(l/r); });
+    Forth f;
 
-    forth.add(":", [](Forth* f){ f->startRecording(); });
-    forth.addImmediate(";", [](Forth* f){ f->stopRecording(); });
+    f.addImmediate(":", [&](){ f.startRecording(); });
+    f.addImmediate(";", [&](){ f.stopRecording(); });
 
-    forth.add("drop", [](Forth* f){ f->pop(); });
-    forth.add("dup",  [](Forth* f){ double v = f->pop(); f->push(v); f->push(v); });
-    forth.add("swap", [](Forth* f){
-        double a = f->pop(), b = f->pop();
-        f->push(a); f->push(b);
+    f.add("+", [&](){ double r = f.pop(), l = f.pop(); f.push(l+r); });
+    f.add("-", [&](){ double r = f.pop(), l = f.pop(); f.push(l-r); });
+    f.add("*", [&](){ double r = f.pop(), l = f.pop(); f.push(l*r); });
+    f.add("/", [&](){ double r = f.pop(), l = f.pop(); f.push(l/r); });
+
+
+    f.add("drop",  [&](){ f.pop(); });
+    f.add("clear", [&](){ f.clear(); });
+
+    f.add("dup",  [&](){ double v = f.pop(); f.push(v); f.push(v); });
+    f.add("swap", [&](){ double a = f.pop(), b = f.pop(); f.push(a); f.push(b); });
+    f.add("rot",  [&](){
+        double a = f.pop(), b = f.pop(), c = f.pop();
+        f.push(b); f.push(a); f.push(c);
     });
-    forth.add("rot", [](Forth* f){
-        double a = f->pop(), b = f->pop(), c = f->pop();
-        f->push(b); f->push(a); f->push(c);
-    });
 
-    forth.eval(": over swap dup rot swap ;");
+   // brute(&f, "over", "3 7", "3 7 3");
 
+    brute(&f, "over", "3 7 over", {3, 7, 3});
+    brute(&f, "tuck", "3 7 tuck", {7, 3, 7});
+
+    brute(&f, "square", "7 square", {49});
+    brute(&f, "sum-squares", "3 7 sum-squares", {58});
+
+    brute(&f, "-rot", "3 7 13 -rot", {13, 3, 7});
+
+    f.add(".", [&](){ cout << f.pop() << endl; });
+
+    test(&f, "2 square", {4});
+    f.clear();
+
+    string line;
     do {
-        for (double v : forth.stack()) cout << v << " ";
+        for (double v : f.stack()) cout << v << " ";
         cout << endl;
-        if(forth.recording()) cout << "*";
+        if(f.recording()) cout << "*";
         cout << "bƒ ";
 
-        string line;
         getline(cin, line);
-        forth.eval(line);
+        f.eval(line);
     } while(!line.empty());
 }
