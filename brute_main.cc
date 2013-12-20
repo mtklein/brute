@@ -139,19 +139,26 @@ static void test(Forth* f, const string& line, vector<double> expectedStack) {
     }
 }
 
-static void brute(Forth* f, const string& name, const string& example, vector<double> stack) {
+static void brute(Forth* f, const string& name, const string& in, const string& out) {
     const vector<string> words = f->words();
 
     deque<string> candidates(words.begin(), words.end());
+
+    f->clear();
+    f->eval(out);
+    vector<double> expected = f->stack();
 
     while (!candidates.empty()) {
         string candidate = candidates.front();
 
         f->clear();
-        f->eval(": " + name + " " + candidate + " ; " + example);
-        if (f->stack() == stack) {
+        f->eval(in);
+        f->eval(candidate);
+        if (f->stack() == expected) {
+            string def = ": " + name + " " + candidate + " ;";
+            cout << def << endl;
+            f->eval(def);
             f->clear();
-            cout << name << " " << candidate << endl;
             return;
         }
 
@@ -175,7 +182,6 @@ int main(int /*argc*/, char** /*argv*/) {
     f.add("*", [&](){ double r = f.pop(), l = f.pop(); f.push(l*r); });
     f.add("/", [&](){ double r = f.pop(), l = f.pop(); f.push(l/r); });
 
-
     f.add("drop",  [&](){ f.pop(); });
     f.add("clear", [&](){ f.clear(); });
 
@@ -186,21 +192,18 @@ int main(int /*argc*/, char** /*argv*/) {
         f.push(b); f.push(a); f.push(c);
     });
 
-   // brute(&f, "over", "3 7", "3 7 3");
+    brute(&f, "over", "3 7", "3 7 3");
+    brute(&f, "tuck", "3 7", "7 3 7");
+    brute(&f, "nip",  "3 7", "7");
 
-    brute(&f, "over", "3 7 over", {3, 7, 3});
-    brute(&f, "tuck", "3 7 tuck", {7, 3, 7});
+    brute(&f, "square", "7", "49");
+    brute(&f, "sum-squares", "3 7", "58");
 
-    brute(&f, "square", "7 square", {49});
-    brute(&f, "sum-squares", "3 7 sum-squares", {58});
-
-    brute(&f, "-rot", "3 7 13 -rot", {13, 3, 7});
-
-    f.add(".", [&](){ cout << f.pop() << endl; });
+    brute(&f, "-rot", "3 7 13", "13 3 7");
 
     test(&f, "2 square", {4});
-    f.clear();
 
+    f.clear();
     string line;
     do {
         for (double v : f.stack()) cout << v << " ";
