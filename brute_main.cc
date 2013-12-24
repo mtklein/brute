@@ -35,7 +35,7 @@ typedef function<void()> Word;
 
 class Forth {
 public:
-    Forth() : recording_(false) {}
+    Forth() : state_(Normal) {}
 
     const vector<double>& stack() const { return stack_; }
 
@@ -77,21 +77,37 @@ public:
         return out;
     }
 
-    static Word Concat(vector<Word> words) {
-        return [=](){ for (auto word : words) word(); };
-    }
+    bool recording() const { return state_ != Normal; }
 
-    bool recording() const { return recording_; }
-
-    void startRecording() {
-        recording_ = true;
+    void recordWord() {
+        state_ = RecordWord;
         name_.clear();
         body_.clear();
     }
 
-    void stopRecording() {
-        recording_ = false;
-        dict_[name_] = make_pair(Concat(body_), false);
+    void recordBruteInput() {
+        state_ = RecordBruteInput;
+        name_.clear();
+    }
+
+    void recordBruteOutput() {
+        state_ = RecordBruteOutput;
+        input_.clear();
+        input_.swap(stack_);
+    }
+
+    void doneRecording() {
+        Word w = nullptr;
+        if (state_ == RecordWord) {
+            w = Concat(body_);
+        } else if (state_ == RecordBruteOutput) {
+            vector<double> output;
+            output.swap(stack_);
+            w = this->brute(input_, output);
+        }
+        dict_[name_] = make_pair(w, false);
+
+        state_ = Normal;
     }
 
     void eval(const string& line) {
@@ -113,7 +129,7 @@ public:
             bool immediate;
             if (!this->evalToken(token, &w, &immediate)) continue;
 
-            if (recording_ && !immediate) {
+            if (state_ == RecordWord && !immediate) {
                 body_.push_back(w);
             } else {
                 w();
@@ -121,7 +137,12 @@ public:
         }
     }
 
+
 private:
+    static Word Concat(vector<Word> words) {
+        return [=](){ for (auto word : words) word(); };
+    }
+
     bool evalToken(const string& token, Word* word, bool* immediate) {
         double literal;
         if (parse_literal(token, &literal)) {
@@ -140,102 +161,66 @@ private:
         return false;
     }
 
+    Word brute(const vector<double>& input, const vector<double>& output) {
+        struct Cons {
+            Cons(const pair<const string, Word>& e, const Cons* t) : entry(e), tail(t) {}
+
+            const pair<const string, Word>& entry;
+            const Cons* tail;
+
+            const string& name() const { return entry.first; }
+            const Word& word()   const { return entry.second; }
+            void operator()() const { word()(); if (tail) (*tail)(); }
+        };
+
+        const map<string, Word> dict = this->dict();
+        deque<Cons> candidates, retired;
+        for (const auto& entry : dict) candidates.emplace_back(entry, nullptr);
+
+        while (!candidates.empty()) {
+            retired.push_back(candidates.front());
+            candidates.pop_front();
+            const auto& candidate = retired.back();
+
+            this->clear();
+            for (double v : input) this->push(v);
+            candidate();
+
+            if (this->stack() == output) {
+                this->clear();
+                vector<Word> flattened;
+                for (const Cons* c = &candidate; c; c = c->tail) {
+                    cout << c->name() << " ";
+                    flattened.push_back(c->word());
+                }
+                cout << endl;
+                return Concat(flattened);
+            }
+            for (const auto& entry : dict) candidates.emplace_back(entry, &candidate);
+        }
+        return nullptr;
+    }
+
+    enum { Normal, RecordWord, RecordBruteInput, RecordBruteOutput } state_;
     vector<double> stack_;
 
     map<string, pair<Word,bool>> dict_;
 
-    bool recording_;
     string name_;
     vector<Word> body_;
+
+    vector<double> input_;
 };
 
-static void test(Forth* f, const string& line, const string& expected) {
-    f->clear();
-    f->eval(expected);
-    vector<double> expectedStack = f->stack();
-
-    f->clear();
-    f->eval(line);
-    if (expectedStack != f->stack()) {
-        cerr << "Expected";
-        for (double v : expectedStack) cerr << " " << v;
-        cerr << ", actual";
-        for (double v : f->stack()) cerr << " " << v;
-        cerr << endl;
-        assert(false);
-    }
-}
-
-class Scoped {
-public:
-    template <typename F> explicit Scoped(F f) : f_(f) {}
-    ~Scoped() { f_(); }
-private:
-    function<void()> f_;
-};
-
-static void brute(Forth* f, const string& name, const string& in, const string& out) {
-    struct Cons {
-        Cons(const pair<const string, Word>& e, const Cons* t) : entry(e), tail(t) {}
-
-        const pair<const string, Word>& entry;
-        const Cons* tail;
-
-        const string& name() const { return entry.first; }
-        const Word& word()   const { return entry.second; }
-        void operator()() const { word()(); if (tail) (*tail)(); }
-    };
-
-    Scoped cleanup([&](){ f->clear(); });
-    Scoped  tested([&](){ test(f, in + " " + name, out); });
-
-    f->clear();
-    f->eval(out);
-    const vector<double> expected = f->stack();
-
-    f->clear();
-    f->eval(in);
-    const vector<double> input = f->stack();
-
-    const map<string, Word> dict = f->dict();
-    deque<Cons> candidates, retired;
-    for (const auto& entry : dict) candidates.emplace_back(entry, nullptr);
-
-    while (!candidates.empty()) {
-        retired.push_back(candidates.front());
-        candidates.pop_front();
-        const auto& candidate = retired.back();
-
-        f->clear();
-        for (double v : input) f->push(v);
-        candidate();
-
-        if (f->stack() == expected) {
-            vector<Word> flattened;
-            string pretty = ": " + name + " ";
-
-            for (const Cons* c = &candidate; c; c = c->tail) {
-                pretty += c->name() + " ";
-                flattened.push_back(c->word());
-            }
-
-            f->add(name, Forth::Concat(flattened));
-            cout << pretty << ";" << endl;
-
-            return;
-        }
-
-        for (const auto& entry : dict) candidates.emplace_back(entry, &candidate);
-    }
-
-    assert(false);
-}
 
 int main(int /*argc*/, char** /*argv*/) {
     Forth f;
 
-    f.addImmediate(":", bind(&Forth::startRecording, &f));
-    f.addImmediate(";", bind(&Forth::stopRecording, &f));
+    f.addImmediate(":", bind(&Forth::recordWord, &f));
+    f.addImmediate(";", bind(&Forth::doneRecording, &f));
+
+    f.addImmediate("::", bind(&Forth::recordBruteInput, &f));
+    f.addImmediate("->", bind(&Forth::recordBruteOutput, &f));
 
     f.add("+", [&](){ double r = f.pop(), l = f.pop(); f.push(l+r); });
     f.add("-", [&](){ double r = f.pop(), l = f.pop(); f.push(l-r); });
@@ -252,16 +237,14 @@ int main(int /*argc*/, char** /*argv*/) {
         f.push(b); f.push(a); f.push(c);
     });
 
-    brute(&f, "over", "3 7", "3 7 3");
-    brute(&f, "tuck", "3 7", "7 3 7");
-    brute(&f, "nip",  "3 7", "7");
+    f.eval(":: over 3 7 -> 3 7 3 ;");
+    f.eval(":: tuck 3 7 -> 7 3 7 ;");
+    f.eval(":: nip 3 7 -> 7 ;");
+    f.eval(":: square 7 -> 49 ; ");
+    f.eval(":: sum-squares 3 7 -> 58 ;");
+    f.eval(":: -rot 3 7 13 -> 13 3 7 ;");
 
-    brute(&f, "square", "7", "49");
-    test(&f, "2 square", "4");
-
-    brute(&f, "sum-squares", "3 7", "58");
-
-    brute(&f, "-rot", "3 7 13", "13 3 7");
+    f.eval(":: neg 1 7 3 -> 1 7 -3 ;");
 
     f.clear();
     string line;
