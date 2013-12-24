@@ -1,4 +1,4 @@
-//! clang++ --std=c++11 -O3 brute_main.cc -o brute_main \
+//! clang++ --std=c++11 -O3 -march=native brute_main.cc -o brute_main \
 //!   -Weverything -Werror -Wno-c++98-compat -Wno-padded
 
 #include <deque>
@@ -10,10 +10,14 @@
     using std::cin;
     using std::cout;
     using std::endl;
-#include <unordered_map>
-    using std::unordered_map;
+#include <map>
+    using std::map;
 #include <string>
     using std::string;
+#include <utility>
+    using std::make_pair;
+    using std::pair;
+    using std::tie;
 #include <vector>
     using std::vector;
 
@@ -53,35 +57,40 @@ public:
     typedef function<void()> Word;
 
     void add(const string& name, Word word) {
-        normal_[name] = word;
+        dict_[name] = make_pair(word, false);
     }
 
     void addImmediate(const string& name, Word word) {
-        immediate_[name] = word;
+        dict_[name] = make_pair(word, true);
     }
 
-    vector<string> words() const {
-        vector<string> words;
-        for (const auto& entry : normal_) {
-            words.push_back(entry.first);
+    vector<Word> words() const {
+        vector<Word> words;
+        for (const auto& entry : dict_) {
+            Word word;
+            bool immediate;
+            tie(word, immediate) = entry.second;
+
+            if (!immediate) words.push_back(word);
         }
         return words;
+    }
+
+    static Word Concat(vector<Word> words) {
+        return [words](){ for (auto word : words) word(); };
     }
 
     bool recording() const { return recording_; }
 
     void startRecording() {
         recording_ = true;
-
         name_.clear();
         body_.clear();
     }
 
     void stopRecording() {
         recording_ = false;
-
-        string body(body_);
-        normal_[name_] = [this, body]() { this->eval(body); };
+        dict_[name_] = make_pair(Concat(body_), false);
     }
 
     void eval(const string& line) {
@@ -93,38 +102,50 @@ public:
             string token(s, span);
             s += span;
             s += strspn(s, " ");
-            this->evalToken(token);
+
+            if (this->recording() && name_ == "") {
+                name_ = token;
+                continue;
+            }
+
+            Word w;
+            bool immediate;
+            if (!this->evalToken(token, &w, &immediate)) continue;
+
+            if (recording_ && !immediate) {
+                body_.push_back(w);
+            } else {
+                w();
+            }
         }
     }
 
 private:
-    Word lookup(const string& name, const unordered_map<string, Word>& dict) const {
-        auto it = dict.find(name);
-        if (it == dict.end()) return NULL;
-        return it->second;
-    }
-
-    void record(const string& token) {
-        if (name_ == "") {
-            name_ = token;
-        } else {
-            body_ += " ";
-            body_ += token;
-        }
-    }
-
-    void evalToken(const string& token) {
-        if (Word w = lookup(token, immediate_)) return w();
-        if (recording_) return this->record(token);
+    bool evalToken(const string& token, Word* word, bool* immediate) {
         double literal;
-        if (parse_literal(token, &literal)) this->push(literal);
-        if (Word w = lookup(token, normal_)) return w();
+        if (parse_literal(token, &literal)) {
+            *word = [=](){ this->push(literal); };
+            *immediate = false;
+            return true;
+        }
+
+        auto it = dict_.find(token);
+        if (it != dict_.end()) {
+            *word = it->second.first;
+            *immediate = it->second.second;
+            return true;
+        }
+
+        return false;
     }
 
     vector<double> stack_;
-    unordered_map<string, Word> immediate_, normal_;
+
+    map<string, pair<Word,bool>> dict_;
+
     bool recording_;
-    string name_, body_;
+    string name_;
+    vector<Word> body_;
 };
 
 static void test(Forth* f, const string& line, vector<double> expectedStack) {
@@ -140,32 +161,35 @@ static void test(Forth* f, const string& line, vector<double> expectedStack) {
 }
 
 static void brute(Forth* f, const string& name, const string& in, const string& out) {
-    const vector<string> words = f->words();
-
-    deque<string> candidates(words.begin(), words.end());
-
     f->clear();
     f->eval(out);
     vector<double> expected = f->stack();
 
+    const vector<Forth::Word> words = f->words();
+
+    deque<vector<Forth::Word>> candidates;
+    for (auto word : words) candidates.push_back({word});
+
     while (!candidates.empty()) {
-        string candidate = candidates.front();
+        const vector<Forth::Word>& candidate = candidates.front();
 
         f->clear();
         f->eval(in);
-        f->eval(candidate);
+        Forth::Word w = Forth::Concat(candidate);
+        w();
+
         if (f->stack() == expected) {
-            string def = ": " + name + " " + candidate + " ;";
-            cout << def << endl;
-            f->eval(def);
+            f->add(name, w);
             f->clear();
             return;
         }
 
-        candidates.pop_front();
-        for (const string& word : words) {
-            candidates.push_back(candidate + " " + word);
+        for (auto word : words) {
+            vector<Forth::Word> child(candidate);
+            child.push_back(word);
+            candidates.push_back(child);
         }
+        candidates.pop_front();
     }
 
     assert(false);
