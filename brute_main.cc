@@ -1,4 +1,4 @@
-//! clang++ --std=c++11 -O3 -march=native brute_main.cc -o brute_main \
+//! clang++ --std=c++11 -g -O0 -march=native brute_main.cc -o brute_main \
 //!   -Weverything -Werror -Wno-c++98-compat -Wno-padded
 
 #include <deque>
@@ -31,6 +31,8 @@ static bool parse_literal(const string& token, double* value) {
     return end == token.c_str() + token.size();
 }
 
+typedef function<void()> Word;
+
 class Forth {
 public:
     Forth() : recording_(false) {}
@@ -54,7 +56,6 @@ public:
         stack_.clear();
     }
 
-    typedef function<void()> Word;
 
     void add(const string& name, Word word) {
         dict_[name] = make_pair(word, false);
@@ -160,33 +161,40 @@ static void test(Forth* f, const string& line, vector<double> expectedStack) {
     }
 }
 
+class defer {
+public:
+    template <typename F> explicit defer(F f) : f_(f) {}
+    ~defer() { f_(); }
+private:
+    function<void()> f_;
+};
+
 static void brute(Forth* f, const string& name, const string& in, const string& out) {
+    defer cleanup([&](){ f->clear(); });
+
     f->clear();
     f->eval(out);
     vector<double> expected = f->stack();
 
-    const vector<Forth::Word> words = f->words();
-
-    deque<vector<Forth::Word>> candidates;
-    for (auto word : words) candidates.push_back({word});
+    const vector<Word> words = f->words();
+    deque<vector<unsigned>> candidates;
+    for (unsigned i = 0; i < words.size(); i++) candidates.push_back({i});
 
     while (!candidates.empty()) {
-        const vector<Forth::Word>& candidate = candidates.front();
-
         f->clear();
         f->eval(in);
-        Forth::Word w = Forth::Concat(candidate);
-        w();
+        for (unsigned i : candidates.front()) words[i]();
 
         if (f->stack() == expected) {
-            f->add(name, w);
-            f->clear();
+            vector<Word> candidate;
+            for (unsigned i : candidates.front()) candidate.push_back(words[i]);
+            f->add(name, Forth::Concat(candidate));
             return;
         }
 
-        for (auto word : words) {
-            vector<Forth::Word> child(candidate);
-            child.push_back(word);
+        for (unsigned i = 0; i < words.size(); i++) {
+            vector<unsigned> child(candidates.front());
+            child.push_back(i);
             candidates.push_back(child);
         }
         candidates.pop_front();
