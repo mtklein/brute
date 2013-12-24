@@ -1,17 +1,15 @@
 //! clang++ --std=c++11 -g -O0 -march=native brute_main.cc -o brute_main \
 //!   -Weverything -Werror -Wno-c++98-compat -Wno-padded
-
-#include <algorithm>
-    using std::reverse;
-#include <deque>
-    using std::deque;
 #include <functional>
+    using std::bind;
     using std::function;
 #include <iostream>
     using std::cerr;
     using std::cin;
     using std::cout;
     using std::endl;
+#include <list>
+    using std::list;
 #include <map>
     using std::map;
 #include <memory>
@@ -83,7 +81,7 @@ public:
     }
 
     static Word Concat(vector<Word> words) {
-        return [words](){ for (auto word : words) word(); };
+        return [=](){ for (auto word : words) word(); };
     }
 
     bool recording() const { return recording_; }
@@ -154,7 +152,12 @@ private:
     vector<Word> body_;
 };
 
-static void test(Forth* f, const string& line, vector<double> expectedStack) {
+static void test(Forth* f, const string& line, const string& expected) {
+    f->clear();
+    f->eval(expected);
+    vector<double> expectedStack = f->stack();
+
+    f->clear();
     f->eval(line);
     if (expectedStack != f->stack()) {
         cerr << "Expected";
@@ -176,44 +179,52 @@ private:
 
 class Cons {
 public:
-    Cons(Word head, shared_ptr<Cons> tail) : head_(head), tail_(tail) {}
-    void operator()() { head_(); if (tail_) (*tail_)(); }
-private:
-    Word head_;
-    shared_ptr<Cons> tail_;
-};
+    explicit Cons(const Word& head) : head_(head), tail_(NULL) {}
+    Cons(const Word& head, const Cons& tail) : head_(head), tail_(&tail) {}
 
-static shared_ptr<Cons> cons(Word head, shared_ptr<Cons> tail) {
-    return make_shared<Cons>(head, tail);
-}
+    void operator()() const { head_(); if (tail_) (*tail_)(); }
+
+    void flattenInto(vector<Word>* words) const {
+        words->push_back(head_);
+        if (tail_) tail_->flattenInto(words);
+    }
+private:
+    const Word& head_;
+    const Cons* tail_;
+};
 
 static void brute(Forth* f, const string& name, const string& in, const string& out) {
     Scoped cleanup([&](){ f->clear(); });
+    Scoped tested([&]() { test(f, in + " " + name, out); });
 
     f->clear();
     f->eval(out);
-    vector<double> expected = f->stack();
+    const vector<double> expected = f->stack();
 
     f->clear();
     f->eval(in);
-    vector<double> input = f->stack();
-    reverse(input.begin(), input.end());
+    const vector<double> input = f->stack();
 
-    deque<shared_ptr<Cons>> candidates;
     const vector<Word> words = f->words();
-    shared_ptr<Cons> null;
-    for (auto word : words) candidates.push_back(cons(word, null));
+    list<Cons> candidates, retired;
+    for (const auto& word : words) candidates.push_back(Cons(word));
 
     while (!candidates.empty()) {
+        const auto& candidate = candidates.front();
+        retired.splice(retired.begin(), candidates, candidates.begin());
+
         f->clear();
         for (double v : input) f->push(v);
+        candidate();
 
-        const auto& candidate = candidates.front();
-        (*candidate)();
-        if (f->stack() == expected) return f->add(name, *candidate);
+        if (f->stack() == expected) {
+            vector<Word> flattened;
+            candidate.flattenInto(&flattened);
+            f->add(name, Forth::Concat(flattened));
+            return;
+        }
 
-        for (auto word : words) candidates.push_back(cons(word, candidate));
-        candidates.pop_front();
+        for (const auto& word : words) candidates.push_back(Cons(word, candidate));
     }
 
     assert(false);
@@ -222,16 +233,16 @@ static void brute(Forth* f, const string& name, const string& in, const string& 
 int main(int /*argc*/, char** /*argv*/) {
     Forth f;
 
-    f.addImmediate(":", [&](){ f.startRecording(); });
-    f.addImmediate(";", [&](){ f.stopRecording(); });
+    f.addImmediate(":", bind(&Forth::startRecording, f));
+    f.addImmediate(";", bind(&Forth::stopRecording, f));
 
     f.add("+", [&](){ double r = f.pop(), l = f.pop(); f.push(l+r); });
     f.add("-", [&](){ double r = f.pop(), l = f.pop(); f.push(l-r); });
     f.add("*", [&](){ double r = f.pop(), l = f.pop(); f.push(l*r); });
     f.add("/", [&](){ double r = f.pop(), l = f.pop(); f.push(l/r); });
 
+    f.add("clear", bind(&Forth::clear, f));
     f.add("drop",  [&](){ f.pop(); });
-    f.add("clear", [&](){ f.clear(); });
 
     f.add("dup",  [&](){ double v = f.pop(); f.push(v); f.push(v); });
     f.add("swap", [&](){ double a = f.pop(), b = f.pop(); f.push(a); f.push(b); });
@@ -249,7 +260,7 @@ int main(int /*argc*/, char** /*argv*/) {
 
     brute(&f, "-rot", "3 7 13", "13 3 7");
 
-    test(&f, "2 square", {4});
+    test(&f, "2 square", "4");
 
     f.clear();
     string line;
