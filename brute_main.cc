@@ -231,15 +231,15 @@ static void brute(Forth* f, const string& name, const string& in, const string& 
 int main(int /*argc*/, char** /*argv*/) {
     Forth f;
 
-    f.addImmediate(":", bind(&Forth::startRecording, f));
-    f.addImmediate(";", bind(&Forth::stopRecording, f));
+    f.addImmediate(":", bind(&Forth::startRecording, &f));
+    f.addImmediate(";", bind(&Forth::stopRecording, &f));
 
     f.add("+", [&](){ double r = f.pop(), l = f.pop(); f.push(l+r); });
     f.add("-", [&](){ double r = f.pop(), l = f.pop(); f.push(l-r); });
     f.add("*", [&](){ double r = f.pop(), l = f.pop(); f.push(l*r); });
     f.add("/", [&](){ double r = f.pop(), l = f.pop(); f.push(l/r); });
 
-    f.add("clear", bind(&Forth::clear, f));
+    f.add("clear", bind(&Forth::clear, &f));
     f.add("drop",  [&](){ f.pop(); });
 
     f.add("dup",  [&](){ double v = f.pop(); f.push(v); f.push(v); });
