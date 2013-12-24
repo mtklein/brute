@@ -1,6 +1,8 @@
 //! clang++ --std=c++11 -g -O0 -march=native brute_main.cc -o brute_main \
 //!   -Weverything -Werror -Wno-c++98-compat -Wno-padded
 
+#include <algorithm>
+    using std::reverse;
 #include <deque>
     using std::deque;
 #include <functional>
@@ -12,6 +14,9 @@
     using std::endl;
 #include <map>
     using std::map;
+#include <memory>
+    using std::make_shared;
+    using std::shared_ptr;
 #include <string>
     using std::string;
 #include <utility>
@@ -161,42 +166,53 @@ static void test(Forth* f, const string& line, vector<double> expectedStack) {
     }
 }
 
-class defer {
+class Scoped {
 public:
-    template <typename F> explicit defer(F f) : f_(f) {}
-    ~defer() { f_(); }
+    template <typename F> explicit Scoped(F f) : f_(f) {}
+    ~Scoped() { f_(); }
 private:
     function<void()> f_;
 };
 
+class Cons {
+public:
+    Cons(Word head, shared_ptr<Cons> tail) : head_(head), tail_(tail) {}
+    void operator()() { head_(); if (tail_) (*tail_)(); }
+private:
+    Word head_;
+    shared_ptr<Cons> tail_;
+};
+
+static shared_ptr<Cons> cons(Word head, shared_ptr<Cons> tail) {
+    return make_shared<Cons>(head, tail);
+}
+
 static void brute(Forth* f, const string& name, const string& in, const string& out) {
-    defer cleanup([&](){ f->clear(); });
+    Scoped cleanup([&](){ f->clear(); });
 
     f->clear();
     f->eval(out);
     vector<double> expected = f->stack();
 
+    f->clear();
+    f->eval(in);
+    vector<double> input = f->stack();
+    reverse(input.begin(), input.end());
+
+    deque<shared_ptr<Cons>> candidates;
     const vector<Word> words = f->words();
-    deque<vector<unsigned>> candidates;
-    for (unsigned i = 0; i < words.size(); i++) candidates.push_back({i});
+    shared_ptr<Cons> null;
+    for (auto word : words) candidates.push_back(cons(word, null));
 
     while (!candidates.empty()) {
         f->clear();
-        f->eval(in);
-        for (unsigned i : candidates.front()) words[i]();
+        for (double v : input) f->push(v);
 
-        if (f->stack() == expected) {
-            vector<Word> candidate;
-            for (unsigned i : candidates.front()) candidate.push_back(words[i]);
-            f->add(name, Forth::Concat(candidate));
-            return;
-        }
+        const auto& candidate = candidates.front();
+        (*candidate)();
+        if (f->stack() == expected) return f->add(name, *candidate);
 
-        for (unsigned i = 0; i < words.size(); i++) {
-            vector<unsigned> child(candidates.front());
-            child.push_back(i);
-            candidates.push_back(child);
-        }
+        for (auto word : words) candidates.push_back(cons(word, candidate));
         candidates.pop_front();
     }
 
