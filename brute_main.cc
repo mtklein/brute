@@ -176,16 +176,14 @@ private:
 
 static void brute(Forth* f, const string& name, const string& in, const string& out) {
     struct Cons {
-        Cons(const pair<const string, Word>& entry)
-            : name(entry.first), word(entry.second), tail(NULL) {}
-        Cons(const pair<const string, Word>& entry, const Cons& t)
-            : name(entry.first), word(entry.second), tail(&t) {}
+        Cons(const pair<const string, Word>& e, const Cons* t) : entry(e), tail(t) {}
 
-        const string& name;
-        const Word&   word;
-        const Cons*   tail;
+        const pair<const string, Word>& entry;
+        const Cons* tail;
 
-        void operator()() const { word(); if (tail) (*tail)(); }
+        const string& name() const { return entry.first; }
+        const Word& word()   const { return entry.second; }
+        void operator()() const { word()(); if (tail) (*tail)(); }
     };
 
     Scoped cleanup([&](){ f->clear(); });
@@ -201,7 +199,7 @@ static void brute(Forth* f, const string& name, const string& in, const string& 
 
     const map<string, Word> dict = f->dict();
     deque<Cons> candidates, retired;
-    for (const auto& entry : dict) candidates.push_back(Cons(entry));
+    for (const auto& entry : dict) candidates.push_back(Cons(entry, NULL));
 
     while (!candidates.empty()) {
         retired.push_back(candidates.front());
@@ -217,8 +215,8 @@ static void brute(Forth* f, const string& name, const string& in, const string& 
             string pretty = ": " + name + " ";
 
             for (const Cons* c = &candidate; c; c = c->tail) {
-                pretty += c->name + " ";
-                flattened.push_back(c->word);
+                pretty += c->name() + " ";
+                flattened.push_back(c->word());
             }
 
             f->add(name, Forth::Concat(flattened));
@@ -227,7 +225,7 @@ static void brute(Forth* f, const string& name, const string& in, const string& 
             return;
         }
 
-        for (const auto& entry : dict) candidates.push_back(Cons(entry, candidate));
+        for (const auto& entry : dict) candidates.push_back(Cons(entry, &candidate));
     }
 
     assert(false);
