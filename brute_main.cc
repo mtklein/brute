@@ -1,5 +1,5 @@
-//! clang++ --std=c++11 -g -O3 -march=native brute_main.cc -o brute_main \
-//!   -Weverything -Werror -Wno-c++98-compat -Wno-padded
+//! clang++ --std=c++11 -g -O3 -march=native brute_main.cc -o brute \
+//!   -Werror -Weverything -Wno-c++98-compat -Wno-padded
 #include <deque>
     using std::deque;
 #include <functional>
@@ -199,7 +199,7 @@ static void brute(Forth* f, const string& name, const string& in, const string& 
 
     const map<string, Word> dict = f->dict();
     deque<Cons> candidates, retired;
-    for (const auto& entry : dict) candidates.push_back(Cons(entry, NULL));
+    for (const auto& entry : dict) candidates.emplace_back(entry, nullptr);
 
     while (!candidates.empty()) {
         retired.push_back(candidates.front());
@@ -225,7 +225,7 @@ static void brute(Forth* f, const string& name, const string& in, const string& 
             return;
         }
 
-        for (const auto& entry : dict) candidates.push_back(Cons(entry, &candidate));
+        for (const auto& entry : dict) candidates.emplace_back(entry, &candidate);
     }
 
     assert(false);
