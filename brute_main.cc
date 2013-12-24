@@ -65,16 +65,16 @@ public:
         dict_[name] = make_pair(word, true);
     }
 
-    vector<Word> words() const {
-        vector<Word> words;
+    map<string, Word> dict() const {
+        map<string, Word> out;
         for (const auto& entry : dict_) {
             Word word;
             bool immediate;
             tie(word, immediate) = entry.second;
 
-            if (!immediate) words.push_back(word);
+            if (!immediate) out[entry.first] = word;
         }
-        return words;
+        return out;
     }
 
     static Word Concat(vector<Word> words) {
@@ -174,25 +174,22 @@ private:
     function<void()> f_;
 };
 
-class Cons {
-public:
-    explicit Cons(const Word& head) : head_(head), tail_(NULL) {}
-    Cons(const Word& head, const Cons& tail) : head_(head), tail_(&tail) {}
-
-    void operator()() const { head_(); if (tail_) (*tail_)(); }
-
-    void flattenInto(vector<Word>* words) const {
-        words->push_back(head_);
-        if (tail_) tail_->flattenInto(words);
-    }
-private:
-    const Word& head_;
-    const Cons* tail_;
-};
-
 static void brute(Forth* f, const string& name, const string& in, const string& out) {
+    struct Cons {
+        Cons(const pair<const string, Word>& entry)
+            : name(entry.first), word(entry.second), tail(NULL) {}
+        Cons(const pair<const string, Word>& entry, const Cons& t)
+            : name(entry.first), word(entry.second), tail(&t) {}
+
+        const string& name;
+        const Word&   word;
+        const Cons*   tail;
+
+        void operator()() const { word(); if (tail) (*tail)(); }
+    };
+
     Scoped cleanup([&](){ f->clear(); });
-    Scoped tested([&]() { test(f, in + " " + name, out); });
+    Scoped  tested([&](){ test(f, in + " " + name, out); });
 
     f->clear();
     f->eval(out);
@@ -202,9 +199,9 @@ static void brute(Forth* f, const string& name, const string& in, const string& 
     f->eval(in);
     const vector<double> input = f->stack();
 
-    const vector<Word> words = f->words();
+    const map<string, Word> dict = f->dict();
     deque<Cons> candidates, retired;
-    for (const auto& word : words) candidates.push_back(Cons(word));
+    for (const auto& entry : dict) candidates.push_back(Cons(entry));
 
     while (!candidates.empty()) {
         retired.push_back(candidates.front());
@@ -217,12 +214,20 @@ static void brute(Forth* f, const string& name, const string& in, const string& 
 
         if (f->stack() == expected) {
             vector<Word> flattened;
-            candidate.flattenInto(&flattened);
+            string pretty = ": " + name + " ";
+
+            for (const Cons* c = &candidate; c; c = c->tail) {
+                pretty += c->name + " ";
+                flattened.push_back(c->word);
+            }
+
             f->add(name, Forth::Concat(flattened));
+            cout << pretty << ";" << endl;
+
             return;
         }
 
-        for (const auto& word : words) candidates.push_back(Cons(word, candidate));
+        for (const auto& entry : dict) candidates.push_back(Cons(entry, candidate));
     }
 
     assert(false);
@@ -254,11 +259,11 @@ int main(int /*argc*/, char** /*argv*/) {
     brute(&f, "nip",  "3 7", "7");
 
     brute(&f, "square", "7", "49");
+    test(&f, "2 square", "4");
+
     brute(&f, "sum-squares", "3 7", "58");
 
     brute(&f, "-rot", "3 7 13", "13 3 7");
-
-    test(&f, "2 square", "4");
 
     f.clear();
     string line;
