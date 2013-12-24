@@ -12,9 +12,6 @@
     using std::endl;
 #include <map>
     using std::map;
-#include <memory>
-    using std::make_shared;
-    using std::shared_ptr;
 #include <string>
     using std::string;
 #include <utility>
