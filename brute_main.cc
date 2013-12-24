@@ -1,5 +1,7 @@
-//! clang++ --std=c++11 -g -O0 -march=native brute_main.cc -o brute_main \
+//! clang++ --std=c++11 -g -O3 -march=native brute_main.cc -o brute_main \
 //!   -Weverything -Werror -Wno-c++98-compat -Wno-padded
+#include <deque>
+    using std::deque;
 #include <functional>
     using std::bind;
     using std::function;
@@ -8,8 +10,6 @@
     using std::cin;
     using std::cout;
     using std::endl;
-#include <list>
-    using std::list;
 #include <map>
     using std::map;
 #include <memory>
@@ -40,7 +40,7 @@ class Forth {
 public:
     Forth() : recording_(false) {}
 
-    vector<double> stack() const { return stack_; }
+    const vector<double>& stack() const { return stack_; }
 
     void push(double d) {
         stack_.push_back(d);
@@ -206,12 +206,13 @@ static void brute(Forth* f, const string& name, const string& in, const string& 
     const vector<double> input = f->stack();
 
     const vector<Word> words = f->words();
-    list<Cons> candidates, retired;
+    deque<Cons> candidates, retired;
     for (const auto& word : words) candidates.push_back(Cons(word));
 
     while (!candidates.empty()) {
-        const auto& candidate = candidates.front();
-        retired.splice(retired.begin(), candidates, candidates.begin());
+        retired.push_back(candidates.front());
+        candidates.pop_front();
+        const auto& candidate = retired.back();
 
         f->clear();
         for (double v : input) f->push(v);
