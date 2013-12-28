@@ -65,14 +65,14 @@ public:
         dict_[name] = make_pair(word, true);
     }
 
-    map<string, Word> dict() const {
-        map<string, Word> out;
+    vector<pair<string, Word>> dict() const {
+        vector<pair<string, Word>> out;
         for (const auto& entry : dict_) {
             Word word;
             bool immediate;
             tie(word, immediate) = entry.second;
 
-            if (!immediate) out[entry.first] = word;
+            if (!immediate) out.push_back(make_pair(entry.first, word));
         }
         return out;
     }
@@ -160,9 +160,9 @@ private:
 
     Word brute(const vector<double>& input, const vector<double>& output) {
         struct Cons {
-            Cons(const pair<const string, Word>& e, const Cons* t) : entry(e), tail(t) {}
+            Cons(const pair<string, Word>& e, const Cons* t) : entry(e), tail(t) {}
 
-            const pair<const string, Word>& entry;
+            const pair<string, Word>& entry;
             const Cons* tail;
 
             const string& name() const { return entry.first; }
@@ -170,7 +170,7 @@ private:
             void operator()() const { word()(); if (tail) (*tail)(); }
         };
 
-        const map<string, Word> dict = this->dict();
+        const auto dict = this->dict();
         deque<Cons> candidates, retired;
         for (const auto& entry : dict) candidates.emplace_back(entry, nullptr);
 
