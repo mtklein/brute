@@ -77,30 +77,27 @@ public:
         return out;
     }
 
-    bool recording() const { return state_ != Normal; }
-
-    void recordWord() {
-        state_ = RecordWord;
+    void startRecording() {
         name_.clear();
         body_.clear();
+        state_ = Record;
     }
 
-    void recordBruteInput() {
-        state_ = RecordBruteInput;
+    void startBrute() {
         name_.clear();
+        state_ = Brute;
     }
 
-    void recordBruteOutput() {
-        state_ = RecordBruteOutput;
+    void startBruteOutput() {
         input_.clear();
         input_.swap(stack_);
     }
 
-    void doneRecording() {
+    void done() {
         Word w = nullptr;
-        if (state_ == RecordWord) {
+        if (state_ == Record) {
             w = Concat(body_);
-        } else if (state_ == RecordBruteOutput) {
+        } else if (state_ == Brute) {
             vector<double> output;
             output.swap(stack_);
             w = this->brute(input_, output);
@@ -120,8 +117,8 @@ public:
             s += span;
             s += strspn(s, " ");
 
-            if (this->recording() && name_ == "") {
-                name_ = token;
+            if (state_ != Normal && name_.empty()) {
+                name_.swap(token);
                 continue;
             }
 
@@ -129,7 +126,7 @@ public:
             bool immediate;
             if (!this->evalToken(token, &w, &immediate)) continue;
 
-            if (state_ == RecordWord && !immediate) {
+            if (state_ == Record && !immediate) {
                 body_.push_back(w);
             } else {
                 w();
@@ -201,7 +198,7 @@ private:
         return nullptr;
     }
 
-    enum { Normal, RecordWord, RecordBruteInput, RecordBruteOutput } state_;
+    enum { Normal, Record, Brute } state_;
     vector<double> stack_;
 
     map<string, pair<Word,bool>> dict_;
@@ -216,11 +213,10 @@ private:
 int main(int /*argc*/, char** /*argv*/) {
     Forth f;
 
-    f.addImmediate(":", bind(&Forth::recordWord, &f));
-    f.addImmediate(";", bind(&Forth::doneRecording, &f));
-
-    f.addImmediate("::", bind(&Forth::recordBruteInput, &f));
-    f.addImmediate("->", bind(&Forth::recordBruteOutput, &f));
+    f.addImmediate(":",  bind(&Forth::startRecording, &f));
+    f.addImmediate("::", bind(&Forth::startBrute, &f));
+    f.addImmediate("->", bind(&Forth::startBruteOutput, &f));
+    f.addImmediate(";",  bind(&Forth::done, &f));
 
     f.add("+", [&](){ double r = f.pop(), l = f.pop(); f.push(l+r); });
     f.add("-", [&](){ double r = f.pop(), l = f.pop(); f.push(l-r); });
@@ -243,16 +239,13 @@ int main(int /*argc*/, char** /*argv*/) {
     f.eval(":: square 7 -> 49 ; ");
     f.eval(":: sum-squares 3 7 -> 58 ;");
     f.eval(":: -rot 3 7 13 -> 13 3 7 ;");
-
     f.eval(":: neg 1 7 3 -> 1 7 -3 ;");
 
     f.clear();
     string line;
     do {
         for (double v : f.stack()) cout << v << " ";
-        cout << endl;
-        if(f.recording()) cout << "*";
-        cout << "bƒ ";
+        cout << endl << "bƒ ";
 
         getline(cin, line);
         f.eval(line);
