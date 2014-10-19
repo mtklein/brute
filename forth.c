@@ -4,6 +4,13 @@
 #include <stdlib.h>   // malloc, strtod
 #include <string.h>   // strdup, strncmp
 
+struct dictionary {
+    struct dictionary* next;
+    const char* identifier;
+    word_fn word;
+    void* arg;
+};
+
 void forth_push(struct forth* f, double v) {
     assert (f->count < sizeof(f->stack) / sizeof(f->stack[0]));
     f->stack[f->count++] = v;
