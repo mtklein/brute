@@ -1,7 +1,7 @@
 cc  = clang -std=c11
 cxx = clang++ -std=c++11 -Wno-c++98-compat
 dbg = -g -O1 -Werror -Weverything
-opt = -g -O3 -DNDEBUG
+opt = -O3 -DNDEBUG -march=native
 
 rule dbg
     command = if [ $$(basename $in .c) != $in ]; then $
