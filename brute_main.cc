@@ -198,7 +198,7 @@ private:
         return nullptr;
     }
 
-    enum { Normal, Record, Brute } state_;
+    enum : size_t { Normal, Record, Brute } state_;
     vector<double> stack_;
 
     map<string, pair<Word,bool>> dict_;

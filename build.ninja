@@ -1,0 +1,22 @@
+builddir = out
+
+cc     = clang -std=c11
+cxx    = clang++ -std=c++11 -Wno-c++98-compat
+cflags = -g -O3 -Werror -Weverything
+
+rule compile
+    command = if [ $$(basename $in .c) != $in ]; then $
+                 $cc $cflags -MMD -MF $out.d -c $in -o $out; else $
+                $cxx $cflags -MMD -MF $out.d -c $in -o $out; fi
+    depfile     = $out.d
+    deps        = gcc
+    description = compile $out
+
+rule link
+    command     = $cc $ldflags $in -o $out
+    description = link $out
+
+build out/brute.o: compile brute_main.cc
+
+build out/brute:   link out/brute.o
+    ldflags = $ldflags -lstdc++
