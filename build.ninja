@@ -1,22 +1,30 @@
-builddir = out
+cc  = clang -std=c11
+cxx = clang++ -std=c++11 -Wno-c++98-compat
+dbg = -g -O1 -Werror -Weverything
+opt = -g -O3 -DNDEBUG
 
-cc     = clang -std=c11
-cxx    = clang++ -std=c++11 -Wno-c++98-compat
-cflags = -g -O3 -Werror -Weverything
-
-rule compile
+rule dbg
     command = if [ $$(basename $in .c) != $in ]; then $
-                 $cc $cflags -MMD -MF $out.d -c $in -o $out; else $
-                $cxx $cflags -MMD -MF $out.d -c $in -o $out; fi
+                 $cc $dbg -MMD -MF $out.d -c $in -o $out; else $
+                $cxx $dbg -MMD -MF $out.d -c $in -o $out; fi
     depfile     = $out.d
     deps        = gcc
-    description = compile $out
+    description = dbg $out
+
+rule opt
+    command = if [ $$(basename $in .c) != $in ]; then $
+                 $cc $opt -MMD -MF $out.d -c $in -o $out; else $
+                $cxx $opt -MMD -MF $out.d -c $in -o $out; fi
+    depfile     = $out.d
+    deps        = gcc
+    description = opt $out
 
 rule link
-    command     = $cc $ldflags $in -o $out
+    command     = $cxx $in -o $out
     description = link $out
 
-build out/brute.o: compile brute_main.cc
+build dbg/brute_main.o: dbg brute_main.cc
+build opt/brute_main.o: opt brute_main.cc
 
-build out/brute:   link out/brute.o
-    ldflags = $ldflags -lstdc++
+build dbg/brute: link dbg/brute_main.o
+build opt/brute: link opt/brute_main.o
