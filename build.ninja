@@ -1,6 +1,6 @@
 cc  = clang -std=c11 -fcolor-diagnostics
 dbg = -g -O1 -Werror -Weverything
-opt = -O3 -DNDEBUG -march=native
+opt = -O3 -flto -DNDEBUG -march=native -fomit-frame-pointer
 
 rule dbg
     command     = $cc $dbg -MMD -MF $out.d -c $in -o $out
