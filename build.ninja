@@ -1,30 +1,27 @@
-cc  = clang -std=c11
-cxx = clang++ -std=c++11 -Wno-c++98-compat
+cc  = clang -std=c11 -fcolor-diagnostics
 dbg = -g -O1 -Werror -Weverything
 opt = -O3 -DNDEBUG -march=native
 
 rule dbg
-    command = if [ $$(basename $in .c) != $in ]; then $
-                 $cc $dbg -MMD -MF $out.d -c $in -o $out; else $
-                $cxx $dbg -MMD -MF $out.d -c $in -o $out; fi
+    command     = $cc $dbg -MMD -MF $out.d -c $in -o $out
     depfile     = $out.d
     deps        = gcc
     description = dbg $out
 
 rule opt
-    command = if [ $$(basename $in .c) != $in ]; then $
-                 $cc $opt -MMD -MF $out.d -c $in -o $out; else $
-                $cxx $opt -MMD -MF $out.d -c $in -o $out; fi
+    command     = $cc $opt -MMD -MF $out.d -c $in -o $out
     depfile     = $out.d
     deps        = gcc
     description = opt $out
 
 rule link
-    command     = $cxx $in -o $out
+    command     = $cc $in -o $out
     description = link $out
 
-build dbg/brute_main.o: dbg brute_main.cc
-build opt/brute_main.o: opt brute_main.cc
+build dbg/forth.o: dbg forth.c
+build opt/forth.o: opt forth.c
+build dbg/brute_main.o: dbg brute_main.c
+build opt/brute_main.o: opt brute_main.c
 
-build dbg/brute: link dbg/brute_main.o
-build opt/brute: link opt/brute_main.o
+build dbg/brute: link dbg/forth.o dbg/brute_main.o
+build opt/brute: link opt/forth.o opt/brute_main.o
